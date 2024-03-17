@@ -1,0 +1,556 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": "Data Factory name",
+            "defaultValue": "dev-adfprac-df"
+        },
+        "is_azure_made_connectionString": {
+            "type": "secureString",
+            "metadata": "Secure string for 'connectionString' of 'is_azure_made'"
+        },
+        "is_onprem_made_connectionString": {
+            "type": "secureString",
+            "metadata": "Secure string for 'connectionString' of 'is_onprem_made'",
+            "defaultValue": "Integrated Security=True;Data Source=DESKTOP-JLS95LE\\SQLEXPRESS;Initial Catalog=MADESandeepDB"
+        },
+        "is_onprem_made_password": {
+            "type": "secureString",
+            "metadata": "Secure string for 'password' of 'is_onprem_made'"
+        },
+        "AzureDataLakeStorage1_properties_typeProperties_url": {
+            "type": "string",
+            "defaultValue": "https://devfirstadlssa.dfs.core.windows.net/"
+        },
+        "AzureDataLakeStorage1_properties_typeProperties_tenant": {
+            "type": "string",
+            "defaultValue": "d538f717-bbdc-414a-aeda-985aec94bf9f"
+        },
+        "AzureDataLakeStorage1_properties_typeProperties_servicePrincipalId": {
+            "type": "string",
+            "defaultValue": "d1b86664-a0ac-43c8-8b66-fa7593d3ef8c"
+        },
+        "is_onprem_made_properties_typeProperties_userName": {
+            "type": "string",
+            "defaultValue": "DESKTOP-JLS95LE\\pc"
+        },
+        "ls_akv_madeprac_properties_typeProperties_baseUrl": {
+            "type": "string",
+            "defaultValue": "https://dev-madeprac-kv.vault.azure.net/"
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(parameters('factoryName'), '/pl_made_onprem_migration')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "ForEach1",
+                        "type": "ForEach",
+                        "dependsOn": [
+                            {
+                                "activity": "getMetaData",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "items": {
+                                "value": "@activity('getMetaData').output.value",
+                                "type": "Expression"
+                            },
+                            "isSequential": true,
+                            "activities": [
+                                {
+                                    "name": "copyOnPremCloud",
+                                    "type": "Copy",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "getOLDWM",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        {
+                                            "activity": "getNEWWM",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "0.12:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlServerSource",
+                                            "sqlReaderQuery": {
+                                                "value": "select * from @{item().TABLE_NAME}\n    where @{item().WaterMark_Column} between '@{activity('getOLDWM').output.firstRow.OLDWM}' and '@{activity('getNEWWM').output.firstRow.NEWWM}'\n",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "isolationLevel": "ReadCommitted",
+                                            "partitionOption": "None"
+                                        },
+                                        "sink": {
+                                            "type": "SqlServerSink",
+                                            "writeBehavior": "upsert",
+                                            "upsertSettings": {
+                                                "useTempDB": false,
+                                                "keys": {
+                                                    "value": "@item().MERGE_KEY",
+                                                    "type": "Expression"
+                                                }
+                                            },
+                                            "sqlWriterUseTableLock": false
+                                        },
+                                        "enableStaging": false,
+                                        "enableSkipIncompatibleRow": false,
+                                        "validateDataConsistency": true,
+                                        "translator": {
+                                            "type": "TabularTranslator",
+                                            "typeConversion": true,
+                                            "typeConversionSettings": {
+                                                "allowDataTruncation": true,
+                                                "treatBooleanAsNumber": false
+                                            }
+                                        }
+                                    },
+                                    "inputs": [
+                                        {
+                                            "referenceName": "ds_onprem_sqlserver",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "SOURCE_TABLE_NAME": {
+                                                    "value": "@item().TABLE_NAME",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ],
+                                    "outputs": [
+                                        {
+                                            "referenceName": "ds_azures_sqlserver",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "DEST_TABLE_NAME": {
+                                                    "value": "@item().TABLE_NAME",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "getOLDWM",
+                                    "type": "Lookup",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "timeout": "0.12:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlServerSource",
+                                            "sqlReaderQuery": {
+                                                "value": "SELECT watermarkvalue \"OLDWM\" from watermarktable\nWHERE TableName= '@{item().TABLE_NAME}'",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "dataset": {
+                                            "referenceName": "ds_azures_sqlserver",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "DEST_TABLE_NAME": {
+                                                    "value": "@item().TABLE_NAME",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "getNEWWM",
+                                    "type": "Lookup",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "timeout": "0.12:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlServerSource",
+                                            "sqlReaderQuery": {
+                                                "value": "select max(@{item().WaterMark_Column}) \"NEWWM\" from @{item().TABLE_NAME}",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "dataset": {
+                                            "referenceName": "ds_onprem_sqlserver",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "SOURCE_TABLE_NAME": {
+                                                    "value": "@item().TABLE_NAME",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "updateWM",
+                                    "type": "SqlServerStoredProcedure",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "copyOnPremCloud",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "0.12:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "storedProcedureName": "[[dbo].[usp_write_watermark]",
+                                        "storedProcedureParameters": {
+                                            "LastModifiedtime": {
+                                                "value": {
+                                                    "value": "@{activity('getNEWWM').output.firstRow.NEWWM}",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "DateTime"
+                                            },
+                                            "TableName": {
+                                                "value": {
+                                                    "value": "@item().TABLE_NAME",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            }
+                                        }
+                                    },
+                                    "linkedServiceName": {
+                                        "referenceName": "is_azure_made",
+                                        "type": "LinkedServiceReference"
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "getMetaData",
+                        "type": "Lookup",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "JsonSource",
+                                "storeSettings": {
+                                    "type": "AzureBlobFSReadSettings",
+                                    "recursive": true,
+                                    "enablePartitionDiscovery": false
+                                },
+                                "formatSettings": {
+                                    "type": "JsonReadSettings"
+                                }
+                            },
+                            "dataset": {
+                                "referenceName": "ds_madeprac_metadata",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            },
+                            "firstRowOnly": false
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "annotations": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_madeprac_metadata')]",
+                "[concat(variables('factoryId'), '/datasets/ds_onprem_sqlserver')]",
+                "[concat(variables('factoryId'), '/datasets/ds_azures_sqlserver')]",
+                "[concat(variables('factoryId'), '/linkedServices/is_azure_made')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_azures_sqlserver')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "is_azure_made",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "DEST_TABLE_NAME": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "SqlServerTable",
+                "schema": [
+                    {
+                        "name": "category_id",
+                        "type": "int",
+                        "precision": 10
+                    },
+                    {
+                        "name": "category_name",
+                        "type": "varchar"
+                    },
+                    {
+                        "name": "created_At",
+                        "type": "datetime",
+                        "precision": 23,
+                        "scale": 3
+                    },
+                    {
+                        "name": "updated_at",
+                        "type": "datetime",
+                        "precision": 23,
+                        "scale": 3
+                    }
+                ],
+                "typeProperties": {
+                    "schema": "dbo",
+                    "table": {
+                        "value": "@dataset().DEST_TABLE_NAME",
+                        "type": "Expression"
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/is_azure_made')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_madeprac_metadata')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "AzureDataLakeStorage1",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "Json",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": "Metadata.JSON",
+                        "fileSystem": "metadata"
+                    }
+                },
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "TABLE_NAME": {
+                            "type": "string"
+                        },
+                        "WaterMark_Column": {
+                            "type": "string"
+                        },
+                        "MERGE_KEY": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_onprem_sqlserver')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "is_onprem_made",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "SOURCE_TABLE_NAME": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "SqlServerTable",
+                "schema": [
+                    {
+                        "name": "category_id",
+                        "type": "int",
+                        "precision": 10
+                    },
+                    {
+                        "name": "category_name",
+                        "type": "varchar"
+                    },
+                    {
+                        "name": "created_at",
+                        "type": "datetime",
+                        "precision": 23,
+                        "scale": 3
+                    },
+                    {
+                        "name": "updatred_at",
+                        "type": "datetime",
+                        "precision": 23,
+                        "scale": 3
+                    }
+                ],
+                "typeProperties": {
+                    "schema": "dbo",
+                    "table": {
+                        "value": "@dataset().SOURCE_TABLE_NAME",
+                        "type": "Expression"
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/is_onprem_made')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/AzureDataLakeStorage1')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureBlobFS",
+                "typeProperties": {
+                    "url": "[parameters('AzureDataLakeStorage1_properties_typeProperties_url')]",
+                    "tenant": "[parameters('AzureDataLakeStorage1_properties_typeProperties_tenant')]",
+                    "servicePrincipalId": "[parameters('AzureDataLakeStorage1_properties_typeProperties_servicePrincipalId')]",
+                    "servicePrincipalCredentialType": "ServicePrincipalKey",
+                    "servicePrincipalCredential": {
+                        "type": "AzureKeyVaultSecret",
+                        "store": {
+                            "referenceName": "ls_akv_madeprac",
+                            "type": "LinkedServiceReference"
+                        },
+                        "secretName": "ADLS-SP"
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_akv_madeprac')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/is_azure_made')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "SqlServer",
+                "typeProperties": {
+                    "connectionString": "[parameters('is_azure_made_connectionString')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/is_onprem_made')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "SqlServer",
+                "typeProperties": {
+                    "connectionString": "[parameters('is_onprem_made_connectionString')]",
+                    "userName": "[parameters('is_onprem_made_properties_typeProperties_userName')]",
+                    "password": {
+                        "type": "SecureString",
+                        "value": "[parameters('is_onprem_made_password')]"
+                    }
+                },
+                "connectVia": {
+                    "referenceName": "IR-ONPREM-SSERVER",
+                    "type": "IntegrationRuntimeReference"
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/integrationRuntimes/IR-ONPREM-SSERVER')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_akv_madeprac')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureKeyVault",
+                "typeProperties": {
+                    "baseUrl": "[parameters('ls_akv_madeprac_properties_typeProperties_baseUrl')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/IR-ONPREM-SQLSERVRER')]",
+            "type": "Microsoft.DataFactory/factories/integrationRuntimes",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "type": "SelfHosted",
+                "typeProperties": {}
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/IR-ONPREM-SSERVER')]",
+            "type": "Microsoft.DataFactory/factories/integrationRuntimes",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "type": "SelfHosted",
+                "typeProperties": {}
+            },
+            "dependsOn": []
+        }
+    ]
+}
