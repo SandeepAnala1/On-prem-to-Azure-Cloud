@@ -36,3 +36,15 @@
 - Ensure flexibility and maintainability by decoupling pipeline logic from specific data sources or destinations.
 
 These notes provide a high-level overview of considerations and strategies for migrating various components of on-premises data workflows to the Azure Cloud. Each topic requires detailed analysis and planning to ensure a successful migration with minimal disruption to business operations.
+
+## Triggers
+- Evaluate triggers in your on-premises systems that initiate data processing or workflow execution.
+- Implement equivalent trigger mechanisms in Azure, such as Azure Data Factory triggers or Azure Functions triggers, to automate data workflows based on predefined conditions or events.
+- Ensure proper scheduling and event-driven execution of data pipelines in Azure.
+
+## Data Flow
+- Analyze data flow patterns within your on-premises systems, including data transformations and movement between different data sources and destinations.
+- Design data flow architectures in Azure using services like Azure Data Factory or Azure Databricks to replicate and optimize data processing workflows in the cloud.
+- Utilize Azure Data Factory Data Flows or Azure Databricks for complex data transformations and processing tasks, ensuring efficient data movement and computation.
+
+These notes provide a comprehensive overview of considerations and strategies for migrating various components of on-premises data workflows to the Azure Cloud, including metadata-driven pipelines, triggers, and data flow. Each topic requires detailed analysis and planning to ensure a successful migration with minimal disruption to business operations.
